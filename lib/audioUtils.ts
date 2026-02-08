@@ -10,7 +10,7 @@ export class AudioHandler {
             const AudioContextClass = (window as any).AudioContext || (window as any).webkitAudioContext;
             const ctx = new AudioContextClass();
             this.audioCtx = ctx;
-            console.log("🔊 AudioContext created, state:", ctx.state);
+            console.log("🔊 AudioContext created, state:", ctx.state, "sampleRate:", ctx.sampleRate);
 
             ctx.onstatechange = () => {
                 console.log("🔊 AudioContext state changed to:", ctx.state);
@@ -26,12 +26,14 @@ export class AudioHandler {
                 await ctx.resume();
             }
 
+            // Decode base64 properly
             const pcmBytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
             const pcm16 = new Int16Array(pcmBytes.buffer);
 
             const buffer = ctx.createBuffer(1, pcm16.length, 24000); // Gemini output is 24kHz
             const channelData = buffer.getChannelData(0);
 
+            // Normalize Int16 to Float32 (-1 to 1)
             for (let i = 0; i < pcm16.length; i++) {
                 channelData[i] = pcm16[i] / 32768.0;
             }
@@ -48,9 +50,9 @@ export class AudioHandler {
                 }
             };
 
+            // FIX: Remove artificial delay, schedule immediately if behind
             if (this.nextStartTime < ctx.currentTime) {
-                // Add a slightly larger tiny buffer (50ms) to ensure smooth transitions
-                this.nextStartTime = ctx.currentTime + 0.05;
+                this.nextStartTime = ctx.currentTime;
             }
             source.start(this.nextStartTime);
             this.nextStartTime += buffer.duration;
@@ -84,13 +86,15 @@ export class AudioHandler {
                     channelCount: 1,
                     echoCancellation: true,
                     noiseSuppression: true,
-                    autoGainControl: true
+                    autoGainControl: true,
+                    // FIX: Try to request 16kHz if browser supports it
+                    sampleRate: { ideal: 16000 }
                 }
             });
 
             const source = ctx.createMediaStreamSource(this.stream);
 
-            // Low buffer size (2048) for lower voice interaction latency
+            // Buffer size for low latency
             const bufferSize = 2048;
             this.processor = ctx.createScriptProcessor(bufferSize, 1, 1);
 
@@ -98,22 +102,34 @@ export class AudioHandler {
                 const inputData = e.inputBuffer.getChannelData(0);
                 const pcm16 = new Int16Array(inputData.length);
 
+                // Convert Float32 to Int16 PCM
                 for (let i = 0; i < inputData.length; i++) {
                     const s = Math.max(-1, Math.min(1, inputData[i]));
                     pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
                 }
 
-                const base64 = btoa(String.fromCharCode(...new Uint8Array(pcm16.buffer)));
+                // FIX: Proper base64 encoding without spread operator
+                const base64 = this.uint8ArrayToBase64(new Uint8Array(pcm16.buffer));
                 onAudioData(base64);
             };
 
             source.connect(this.processor);
             this.processor.connect(ctx.destination);
-            console.log("🎤 Mic connected with buffer:", bufferSize);
+            console.log("🎤 Mic connected - Buffer:", bufferSize, "Context Rate:", ctx.sampleRate);
         } catch (error) {
             console.error("Microphone error:", error);
             throw error;
         }
+    }
+
+    // FIX: Helper method for safe base64 encoding (handles large arrays)
+    private uint8ArrayToBase64(bytes: Uint8Array): string {
+        let binary = '';
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary);
     }
 
     stopMic() {

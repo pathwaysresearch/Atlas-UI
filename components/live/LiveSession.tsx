@@ -215,33 +215,38 @@ Use MathJax/LaTeX syntax:
         }
     };
 
-    const initLesson = async (session: any) => {
-        try {
-            console.log("🎤 Requesting Microphone Access...");
-            if (!audioHandlerRef.current) {
-                console.error("❌ Audio Handler not initialized");
-                return;
-            }
+const initLesson = async (session: any) => {
+    try {
+        console.log("🎤 Requesting Microphone Access...");
+        if (!audioHandlerRef.current) {
+            console.error("❌ Audio Handler not initialized");
+            return;
+        }
 
-            await audioHandlerRef.current.startMic((base64) => {
-                const handler = audioHandlerRef.current;
-                const session = sessionRef.current;
-                if (!isStoppedRef.current && handler && session) {
-                    try {
-                        session.sendRealtimeInput({
-                            audio: {
-                                data: base64,
-                                mimeType: `audio/pcm;rate=${Math.round(handler.getAudioContext().sampleRate)}`
-                            }
-                        });
-                    } catch (e) {
-                        console.warn("Failed to send audio input:", e);
-                    }
+        await audioHandlerRef.current.startMic((base64) => {
+            const handler = audioHandlerRef.current;
+            const session = sessionRef.current;
+            if (!isStoppedRef.current && handler && session) {
+                try {
+                    const ctx = handler.getAudioContext();
+                    // FIX: Always send as 16kHz or actual context rate
+                    // Gemini will resample if needed, but we should be accurate
+                    const actualRate = ctx.sampleRate;
+                    
+                    session.sendRealtimeInput({
+                        audio: {
+                            data: base64,
+                            mimeType: `audio/pcm;rate=${actualRate}`
+                        }
+                    });
+                } catch (e) {
+                    console.warn("Failed to send audio input:", e);
                 }
-            });
-            console.log("✅ Microphone active and streaming");
+            }
+        });
+        console.log("✅ Microphone active and streaming");
 
-            const prompt = `
+        const prompt = `
 Here is the content of Module Opening / Sub-Module that you are suppose to explain to the learner:
     ${content}
 
@@ -259,19 +264,19 @@ Here is the content of Module Opening / Sub-Module that you are suppose to expla
     NOTE: YOU MUST LISTEN for the user's voice. If they ask a question, answer it immediately. Treat this as a real-time 1-on-1 coaching session.
     DO NOT SPEAK UNTIL THE BOARD IS UPDATED.
 `;
-            console.log("📤 Sending initial lesson prompt...");
-            await session.sendClientContent({
-                turns: [{ role: "user", parts: [{ text: prompt }] }],
-                turnComplete: true
-            });
+        console.log("📤 Sending initial lesson prompt...");
+        await session.sendClientContent({
+            turns: [{ role: "user", parts: [{ text: prompt }] }],
+            turnComplete: true
+        });
 
-            console.log("✨ Lesson prompt sent successfully");
-            onStatusChange("Lesson Active - Speak to interact!");
-        } catch (e: any) {
-            console.error("❌ Lesson initialization failed:", e);
-            onError(e.message || "Failed to start lesson");
-        }
-    };
+        console.log("✨ Lesson prompt sent successfully");
+        onStatusChange("Lesson Active - Speak to interact!");
+    } catch (e: any) {
+        console.error("❌ Lesson initialization failed:", e);
+        onError(e.message || "Failed to start lesson");
+    }
+};
 
     const handleMessage = async (message: any) => {
         if (isStoppedRef.current) return;
