@@ -1,7 +1,7 @@
 "use client";
 
-import { FileText, Headphones, Loader2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { FileText, Headphones, Loader2, Mic, MessageSquare } from "lucide-react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -10,9 +10,8 @@ import { generateModuleContent } from "@/app/actions/content-generation";
 import { generateCallouts } from "@/app/actions/callout-generation";
 import { getContent, saveContent, type ContentCache } from "@/lib/indexeddb";
 import type { LearnerLevel } from "@/types/content";
-import { marked } from "marked";
-import LiveSession from "@/components/live/LiveSession";
-import { Mic, MicOff, MessageSquare } from "lucide-react";
+
+import { useGeminiLive } from "@/hooks/useGeminiLive";
 
 interface MainContentProps {
     onProgressChange?: (progress: number) => void;
@@ -32,12 +31,72 @@ export default function MainContent({
     const [content, setContent] = useState<string | null>(null);
     const [isLoadingContent, setIsLoadingContent] = useState(false);
 
-    // Live API / Listen Mode State
+    // Live API State handled via Hook Callbacks
     const [blackboardLines, setBlackboardLines] = useState<{ html: string; id: string }[]>([]);
     const [userTranscript, setUserTranscript] = useState<string>("");
     const [liveStatus, setLiveStatus] = useState<string>("Disconnected");
-    const [liveError, setLiveError] = useState<string | null>(null);
-    const [isLiveActive, setIsLiveActive] = useState(false);
+
+    // Callbacks for the hook
+    const handleBlackboardUpdate = useCallback((html: string, mode: "append" | "replace") => {
+        console.log(`🖥️ UI: Blackboard Update Received (Mode: ${mode})`);
+        const id = Math.random().toString(36).substring(7);
+        if (mode === "replace") {
+            setBlackboardLines([{ html, id }]);
+        } else {
+            setBlackboardLines(prev => [...prev, { html, id }]);
+        }
+
+        // Auto-scroll
+        setTimeout(() => {
+            if (scrollRef.current) {
+                scrollRef.current.scrollTo({
+                    top: scrollRef.current.scrollHeight,
+                    behavior: "smooth"
+                });
+            }
+        }, 100);
+    }, []);
+
+    const handleTranscriptUpdate = useCallback((text: string) => {
+        console.log(`🎤 UI: Transcript Update: "${text}"`);
+        setUserTranscript(text);
+    }, []);
+
+    // Clear transcript after 5 seconds
+    useEffect(() => {
+        if (userTranscript) {
+            const timer = setTimeout(() => {
+                setUserTranscript("");
+            }, 5000);
+            return () => clearTimeout(timer);
+        }
+    }, [userTranscript]);
+
+    const handleStatusChange = useCallback((status: string) => {
+        console.log(`📡 UI: Connection Status Change: ${status}`);
+        setLiveStatus(status);
+    }, []);
+
+    const { connect, disconnect, isLiveActive, isConnected } = useGeminiLive({
+        onBlackboardUpdate: handleBlackboardUpdate,
+        onTranscriptUpdate: handleTranscriptUpdate,
+        onStatusChange: handleStatusChange
+    });
+
+    const handleStartLesson = async () => {
+        if (!content) {
+            console.warn("⚠️ UI: No content available to start lesson");
+            return;
+        }
+        console.log("🎬 UI: Starting lesson...");
+        // Simple heuristic for learner level for now
+        await connect(content, "Competent");
+    };
+
+    const handleStopLesson = () => {
+        console.log("⏹️ UI: Stopping lesson...");
+        disconnect();
+    };
 
     // Helper function to check if text is a valid paragraph
     const isValidParagraph = (text: string): boolean => {
@@ -64,12 +123,8 @@ export default function MainContent({
         learnerLevel: LearnerLevel,
         moduleName: string
     ): Promise<string> => {
-        console.log('🔵 [CALLOUT INJECTION] Starting callout injection for:', moduleName);
-        console.log('🔵 [CALLOUT INJECTION] Content length:', markdownText.length);
-
         // Split by double newlines
         const blocks = markdownText.split(/\n\s*\n/);
-        console.log('🔵 [CALLOUT INJECTION] Total blocks:', blocks.length);
 
         const formattedBlocks: string[] = [];
         const paraBuffer: string[] = [];
@@ -99,8 +154,7 @@ export default function MainContent({
             }
         }
 
-        console.log('🔵 [CALLOUT INJECTION] Valid paragraphs found:', paraBuffer.length);
-        console.log('🔵 [CALLOUT INJECTION] Insertion points:', insertionPoints.length);
+
 
         // If no insertion points, return original
         if (insertionPoints.length === 0) {
@@ -109,24 +163,21 @@ export default function MainContent({
         }
 
         // Generate callouts batch
-        console.log('🔵 [CALLOUT INJECTION] Calling generateCallouts API...');
         const contexts = insertionPoints.map(item => item.context);
 
         try {
-            console.log('🔵 [CALLOUT INJECTION] Contexts to send:', contexts.length);
             const result = await generateCallouts({
                 learnerLevel,
                 calloutContexts: contexts,
                 specificModuleName: moduleName
             });
-            console.log('🔵 [CALLOUT INJECTION] API result:', result.success, 'Callouts:', result.callouts?.length);
 
             if (!result.success || !result.callouts) {
                 console.error('❌ [CALLOUT INJECTION] Failed to generate callouts:', result.error);
                 return markdownText;
             }
 
-            console.log('✅ [CALLOUT INJECTION] Successfully generated', result.callouts.length, 'callouts');
+
 
             // Create insertion map
             const insertionMap: Record<number, string> = {};
@@ -144,8 +195,7 @@ export default function MainContent({
                 if (insertionMap[targetIdx]) {
                     const calloutText = insertionMap[targetIdx];
 
-                    console.log('🔵 [CALLOUT INJECTION] Injecting callout at position', targetIdx, 'length:', calloutText.length);
-                    console.log('🔵 [CALLOUT INJECTION] Callout preview:', calloutText.substring(0, 150));
+
 
                     // Keep the <CALLOUT> tags - they will be parsed by rehype-raw
                     finalOutputBlocks.push(calloutText);
@@ -153,9 +203,7 @@ export default function MainContent({
             }
 
             const finalMarkdown = finalOutputBlocks.join("\n\n");
-            console.log('✅ [CALLOUT INJECTION] Callouts injected successfully!');
-            console.log('🔵 [CALLOUT INJECTION] Final content length:', finalMarkdown.length);
-            console.log('🔵 [CALLOUT INJECTION] Preview of final content:', finalMarkdown.substring(0, 500));
+
             return finalMarkdown;
 
         } catch (error) {
@@ -169,26 +217,22 @@ export default function MainContent({
         moduleId: number,
         subModuleId?: number
     ) => {
-        console.log('\n🟢 [CONTENT FETCH] Starting fetch for Module:', moduleId, 'SubModule:', subModuleId);
         setIsLoadingContent(true);
 
         try {
             // Check IndexedDB first
-            console.log('🟢 [CONTENT FETCH] Checking IndexedDB cache...');
             const cachedContent = await getContent(moduleId, subModuleId);
 
             if (cachedContent) {
-                console.log('✅ [CONTENT FETCH] Found in cache, loading immediately');
                 setContent(cachedContent);
                 setIsLoadingContent(false);
                 return;
             }
 
-            console.log('🟢 [CONTENT FETCH] Not cached, generating new content...');
+
 
             // Not cached - generate new content
             const isModuleOpening = subModuleId === undefined || subModuleId === null;
-            console.log('🟢 [CONTENT FETCH] Content type:', isModuleOpening ? 'Module Opening' : 'Sub-Module');
 
             const result = await generateModuleContent({
                 learnerLevel: "Novice", // TODO: Get from user settings
@@ -198,8 +242,6 @@ export default function MainContent({
                 specificModuleName: isModuleOpening ? `Module ${moduleId}` : undefined
             });
 
-            console.log('🟢 [CONTENT FETCH] Content generation result:', result.success);
-
             if (!result.success || !result.content) {
                 console.error('❌ [CONTENT FETCH] Failed to generate content:', result.error);
                 setContent("Failed to load content. Please try again.");
@@ -207,25 +249,20 @@ export default function MainContent({
                 return;
             }
 
-            console.log('✅ [CONTENT FETCH] Content generated successfully, length:', result.content.length);
+
 
             let finalContent = result.content;
 
             // If sub-module, inject callouts
             if (!isModuleOpening) {
-                console.log('🟢 [CONTENT FETCH] This is a sub-module, injecting callouts...');
                 finalContent = await injectCallouts(
                     finalContent,
                     "Novice",
                     `Module ${moduleId}, Sub-module ${subModuleId}`
                 );
-                console.log('🟢 [CONTENT FETCH] Callout injection complete, final content length:', finalContent.length);
-            } else {
-                console.log('🟢 [CONTENT FETCH] Module opening - skipping callouts');
             }
 
             // Save to IndexedDB
-            console.log('🟢 [CONTENT FETCH] Saving to IndexedDB...');
             const cacheId = `${moduleId}_${subModuleId ?? "opening"}`;
             const cacheData: ContentCache = {
                 id: cacheId,
@@ -236,10 +273,8 @@ export default function MainContent({
             };
 
             await saveContent(cacheData);
-            console.log('✅ [CONTENT FETCH] Saved to IndexedDB successfully');
 
             setContent(finalContent);
-            console.log('✅ [CONTENT FETCH] Content set and ready to display\n');
 
         } catch (error) {
             console.error('❌ [CONTENT FETCH] Error fetching content:', error);
@@ -255,36 +290,12 @@ export default function MainContent({
             // Reset Listen mode state when module changes
             setBlackboardLines([]);
             setUserTranscript("");
-            setIsLiveActive(false);
+            // Disconnect if active? Maybe not automatically, but let's reset status
+            // handleStopLesson(); // Optional: stop lesson when changing module
+
             fetchAndDisplayContent(activeModuleId, activeSubModuleId ?? undefined);
         }
     }, [activeModuleId, activeSubModuleId]);
-
-    // Handle Blackboard Updates from Tool Calls
-    const handleBlackboardUpdate = async (md: string, mode: "append" | "replace") => {
-        try {
-            const html = await marked.parse(md);
-            const id = Math.random().toString(36).substring(7);
-
-            if (mode === "replace") {
-                setBlackboardLines([{ html, id }]);
-            } else {
-                setBlackboardLines(prev => [...prev, { html, id }]);
-            }
-
-            // Auto-scroll to bottom
-            setTimeout(() => {
-                if (scrollRef.current) {
-                    scrollRef.current.scrollTo({
-                        top: scrollRef.current.scrollHeight,
-                        behavior: "smooth"
-                    });
-                }
-            }, 100);
-        } catch (e) {
-            console.error("Markdown parse error:", e);
-        }
-    };
 
     useEffect(() => {
         const handleScroll = () => {
@@ -308,11 +319,37 @@ export default function MainContent({
         };
     }, [onProgressChange]);
 
+    // Trigger MathJax typeset when blackboard content changes
+    useEffect(() => {
+        if (typeof window !== 'undefined' && (window as any).MathJax && (window as any).MathJax.typesetPromise) {
+            (window as any).MathJax.typesetPromise().catch((err: any) => console.warn('MathJax error:', err));
+        }
+    }, [blackboardLines]);
+
     return (
         <div
             ref={scrollRef}
             className="flex-1 transparent p-8 overflow-y-auto h-[calc(100vh-112px)] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-800 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-gray-700"
         >
+            {/* MathJax Script */}
+            <script
+                dangerouslySetInnerHTML={{
+                    __html: `
+                    window.MathJax = {
+                        tex: {
+                        inlineMath: [['$', '$'], ['\\\\(', '\\\\)']],
+                        displayMath: [['$$', '$$'], ['\\\\[', '\\\\]']],
+                        processEscapes: true
+                        },
+                        svg: {
+                        fontCache: 'global'
+                        }
+                    };
+                    `
+                }}
+            />
+            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+
             <div className="max-w-3xl mx-auto">
                 {/* Toggle Switch */}
                 <div className="flex items-center bg-[#1a1a1a] rounded-lg p-1 w-fit mb-8 border border-border-color">
@@ -402,11 +439,11 @@ export default function MainContent({
                             <div className="flex flex-col gap-6">
                                 <div className="flex items-center justify-between mb-4 bg-[#1a1a1a] p-4 rounded-lg border border-border-color">
                                     <div className="flex items-center gap-3">
-                                        <div className={`w-3 h-3 rounded-full ${liveStatus.includes('Connected') || liveStatus.includes('Active') ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
+                                        <div className={`w-3 h-3 rounded-full ${isLiveActive ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
                                         <span className="text-sm font-medium text-gray-300">{liveStatus}</span>
                                     </div>
                                     <button
-                                        onClick={() => setIsLiveActive(!isLiveActive)}
+                                        onClick={isLiveActive ? handleStopLesson : handleStartLesson}
                                         className={`px-6 py-2 rounded-md text-sm font-bold transition-all ${isLiveActive ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-accent-orange hover:bg-orange-600 text-black'}`}
                                     >
                                         {isLiveActive ? 'Stop Lesson' : 'Start Lesson'}
@@ -447,21 +484,6 @@ export default function MainContent({
                                         <p className="text-white font-medium italic">"{userTranscript}"</p>
                                     </motion.div>
                                 )}
-
-                                <LiveSession
-                                    isActive={isLiveActive}
-                                    content={content}
-                                    learnerLevel="Novice"
-                                    moduleName={`Module ${activeModuleId}, Sub-module ${activeSubModuleId}`}
-                                    onBlackboardUpdate={handleBlackboardUpdate}
-                                    onTranscriptUpdate={(text) => {
-                                        setUserTranscript(text);
-                                        // Clear transcript after 5 seconds of silence
-                                        setTimeout(() => setUserTranscript(""), 5000);
-                                    }}
-                                    onStatusChange={setLiveStatus}
-                                    onError={setLiveError}
-                                />
                             </div>
                         )}
                     </div>
