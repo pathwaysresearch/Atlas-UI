@@ -1,12 +1,13 @@
 "use client";
 
-import { ChevronDown,Play, ChevronRight, Circle, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useState, useEffect } from "react";
-import { generateLearningPath } from "@/app/actions/learning-path";
-import { getModuleHeadings, saveModuleHeadings, type Module } from "@/lib/indexeddb";
+import { generateLearningPath } from "@/actions/learning-path";
+import { getModuleHeadings, saveModuleHeadings, type Module } from "@/libs/indexeddb";
 
 interface ModuleSidebarProps {
     progress?: number;
+    hasContent?: boolean;
     onModuleChange?: (moduleId: number, subModuleId?: number) => void;
     onModuleStructureLoaded?: (structure: string) => void;
     activeModuleId?: number | null;
@@ -15,13 +16,15 @@ interface ModuleSidebarProps {
 
 export default function ModuleSidebar({
     progress = 0,
+    hasContent = false,
     onModuleChange,
     onModuleStructureLoaded,
     activeModuleId,
     activeSubModuleId
 }: ModuleSidebarProps) {
-    const safeProgress =
-  Number.isFinite(progress) && progress > 0 ? Math.min(progress, 100) : 100;
+    const safeProgress = hasContent
+        ? Math.min(Math.max(progress, 0), 100)
+        : 100;
 
     const [isOpen, setIsOpen] = useState(true);
     const [expandedModule, setExpandedModule] = useState<number | null>(null);
@@ -61,8 +64,19 @@ export default function ModuleSidebar({
         if (modules.length > 0 && onModuleStructureLoaded) {
             // Convert modules to string format for API
             const structure = modules.map((module, idx) => {
-                const subModulesList = module.subModules.map((sub, subIdx) => `${idx}.${subIdx} ${sub}`).join('\n');
-                return `MODULE ${idx}: ${module.title}\n${subModulesList}`;
+                const mIdx = idx + 1;
+                const subModulesList = module.subModules.map((sub, subIdx) => {
+                    // Check if sub already has indexing (e.g. "1.1")
+                    if (/^\d+\.\d+/.test(sub)) return sub;
+                    return `${mIdx}.${subIdx + 1} ${sub}`;
+                }).join('\n');
+
+                // Check if title already has "MODULE X"
+                const title = module.title.toUpperCase().startsWith("MODULE")
+                    ? module.title
+                    : `MODULE ${mIdx}: ${module.title}`;
+
+                return `${title}\n${subModulesList}`;
             }).join('\n\n');
             onModuleStructureLoaded(structure);
         }
@@ -99,33 +113,33 @@ export default function ModuleSidebar({
                 onClick={() => setIsOpen(!isOpen)}
             >
                 <div
-                className={`
+                    className={`
                     flex items-center h-full transition-all  gap-[1px] duration-300
                     ${isOpen ? 'flex-row' : 'flex-row-reverse'}
                 `}
                 >
-                {/* Triangle */}
-                <svg
-                    viewBox="0 0 24 24"
-                    className={`
+                    {/* Triangle */}
+                    <svg
+                        viewBox="0 0 24 24"
+                        className={`
                     w-4 h-4  
                     fill-gray-400
                     group-hover/toggle:fill-white
                     transition-transform duration-300
                     ${isOpen ? 'rotate-180' : 'rotate-0'}
                     `}
-                >
-                    <path d="M9 6l6 6-6 6z" />
-                </svg>
+                    >
+                        <path d="M9 6l6 6-6 6z" />
+                    </svg>
 
-                {/* Vertical Bar */}
-                <div
-                    className="
+                    {/* Vertical Bar */}
+                    <div
+                        className="
                     w-[3px] h-4 bg-gray-500 rounded-full -m-[5px]
                     group-hover/toggle:bg-gray-300
                     transition-colors
                     "
-                />
+                    />
                 </div>
             </div>
 
@@ -154,7 +168,7 @@ export default function ModuleSidebar({
                             <div
                                 key={idx}
                                 className={`rounded-xl transition-all duration-300 group/card cursor-pointer overflow-hidden ${isModuleActive
-                                    ? 'bg-[#1a1a1a] shadow-lg border border-white/5 ring-1 ring-white/5 shadow-black/50'
+                                    ? 'bg-background shadow-lg border border-white/5 ring-1 ring-white/5 shadow-black/50'
                                     : 'bg-transparent hover:bg-white/[0.03] border border-transparent'
                                     } ${isOpen ? 'mx-1' : 'mx-0.5 flex flex-col items-center'}`}
                                 onClick={() => handleModuleClick(idx)}

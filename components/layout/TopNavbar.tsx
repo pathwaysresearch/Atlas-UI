@@ -1,7 +1,6 @@
 "use client";
 
-import { ArrowLeft, Download, Settings, Ticket } from "lucide-react";
-import Link from "next/link";
+import { Download, Settings, Ticket } from "lucide-react";
 import { useState } from "react";
 import { motion } from "framer-motion";
 
@@ -9,7 +8,7 @@ export default function TopNavbar() {
   const [mode, setMode] = useState<"apply" | "learn">("learn");
 
   return (
-    <nav className="fixed top-0 left-0 right-0 h-16 bg-[#141414] border-b border-border-color flex items-center justify-between px-4 z-50 shadow-sm">
+    <nav className="fixed top-0 left-0 right-0 h-16 bg-background border-b border-border-color flex items-center justify-between px-4 z-50 shadow-sm">
       <div className="flex items-center gap-8">
         {/* Logo Area */}
         <div className="flex items-center gap-2">
@@ -31,7 +30,7 @@ export default function TopNavbar() {
 
       <div className="flex items-center gap-6">
         {/* Action Buttons Toggle */}
-        <div className="flex items-center bg-[#1a1a1a] rounded-lg p-1 border border-border-color relative">
+        <div className="flex items-center bg-sidebar-bg rounded-lg p-1 border border-border-color relative">
           <button
             onClick={() => setMode("apply")}
             className={`relative px-4 py-1.5 text-xs font-medium transition-colors z-10 ${mode === "apply" ? "text-white" : "text-gray-400 hover:text-gray-300"}`}
@@ -63,10 +62,10 @@ export default function TopNavbar() {
 
         <div className="flex items-center gap-2 border-l border-border-color pl-6">
           {/* Icons */}
-          <button className="text-gray-400 hover:text-white transition-colors p-2 hover:bg-[#1a1a1a] rounded-full">
+          <button className="text-gray-400 hover:text-white transition-colors p-2  rounded-full">
             <Download className="w-5 h-5" />
           </button>
-          <button className="text-gray-400 hover:text-white transition-colors p-2 hover:bg-[#1a1a1a] rounded-full">
+          <button className="text-gray-400 hover:text-white transition-colors p-2 rounded-full">
             <Settings className="w-5 h-5" />
           </button>
         </div>

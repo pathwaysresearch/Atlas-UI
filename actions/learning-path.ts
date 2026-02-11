@@ -55,9 +55,9 @@ export async function generateLearningPath(learnerLevel: string = "Novice"): Pro
             * Company: Nagarro
             * Industry: Technology
             * Domain/Specialization: [var]
-            * Learner Level Classification: **{learner_level}** *(Novice / Competent / Expert)*
-
-        Adapt the **number, depth, and phrasing** of modules and sub-modules to this learner level.
+            * Learner Level Classification: **{learner_level}** *(Novice / Competent / Expert)*     
+            
+            
 
         
         **OUTPUT FORMAT (STRICT JSON)**:

@@ -6,27 +6,27 @@ import { motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
-import { generateModuleContent } from "@/app/actions/content-generation";
-import { generateCallouts } from "@/app/actions/callout-generation";
-import { getContent, saveContent, type ContentCache } from "@/lib/indexeddb";
+import { generateModuleContent } from "@/actions/content-generation";
+import { generateCallouts } from "@/actions/callout-generation";
+import { getContent, saveContent, type ContentCache } from "@/libs/indexeddb";
 import type { LearnerLevel } from "@/types/content";
 
 import { useGeminiLive } from "@/hooks/useGeminiLive";
 
 interface MainContentProps {
-    onProgressChange?: (progress: number) => void;
     activeModuleId?: number | null;
     activeSubModuleId?: number | null;
     moduleStructure?: string;
+    onContentLoaded?: (content: string) => void;
 }
 
 export default function MainContent({
-    onProgressChange,
     activeModuleId,
     activeSubModuleId,
-    moduleStructure
+    moduleStructure,
+    onContentLoaded
 }: MainContentProps) {
-    const scrollRef = useRef<HTMLDivElement>(null);
+
     const [mode, setMode] = useState<"read" | "listen">("listen");
     const [content, setContent] = useState<string | null>(null);
     const [isLoadingContent, setIsLoadingContent] = useState(false);
@@ -46,15 +46,8 @@ export default function MainContent({
             setBlackboardLines(prev => [...prev, { html, id }]);
         }
 
-        // Auto-scroll
-        setTimeout(() => {
-            if (scrollRef.current) {
-                scrollRef.current.scrollTo({
-                    top: scrollRef.current.scrollHeight,
-                    behavior: "smooth"
-                });
-            }
-        }, 100);
+        // Auto-scroll handled by parent now? or we strictly follow content flow.
+        // For now, removing internal auto-scroll to avoid conflict.
     }, []);
 
     const handleTranscriptUpdate = useCallback((text: string) => {
@@ -225,21 +218,19 @@ export default function MainContent({
 
             if (cachedContent) {
                 setContent(cachedContent);
+                onContentLoaded?.(cachedContent);
                 setIsLoadingContent(false);
                 return;
             }
 
-
-
-            // Not cached - generate new content
             const isModuleOpening = subModuleId === undefined || subModuleId === null;
 
             const result = await generateModuleContent({
                 learnerLevel: "Novice", // TODO: Get from user settings
                 selectionType: isModuleOpening ? "Module Opening" : "Sub-Module",
                 moduleStructure: moduleStructure || "",
-                subModuleName: !isModuleOpening ? `${moduleId}.${subModuleId}` : undefined,
-                specificModuleName: isModuleOpening ? `Module ${moduleId}` : undefined
+                subModuleName: !isModuleOpening ? `${(moduleId ?? 0) + 1}.${(subModuleId ?? 0) + 1}` : undefined,
+                specificModuleName: isModuleOpening ? `Module ${(moduleId ?? 0) + 1}` : undefined
             });
 
             if (!result.success || !result.content) {
@@ -275,6 +266,7 @@ export default function MainContent({
             await saveContent(cacheData);
 
             setContent(finalContent);
+            onContentLoaded?.(finalContent);
 
         } catch (error) {
             console.error('❌ [CONTENT FETCH] Error fetching content:', error);
@@ -290,34 +282,11 @@ export default function MainContent({
             // Reset Listen mode state when module changes
             setBlackboardLines([]);
             setUserTranscript("");
-            // Disconnect if active? Maybe not automatically, but let's reset status
-            // handleStopLesson(); // Optional: stop lesson when changing module
 
             fetchAndDisplayContent(activeModuleId, activeSubModuleId ?? undefined);
         }
     }, [activeModuleId, activeSubModuleId]);
 
-    useEffect(() => {
-        const handleScroll = () => {
-            if (scrollRef.current) {
-                const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
-                const progress = (scrollTop / (scrollHeight - clientHeight)) * 100;
-                onProgressChange?.(Math.min(100, Math.max(0, progress)));
-            }
-        };
-
-        const currentRef = scrollRef.current;
-        if (currentRef) {
-            currentRef.addEventListener("scroll", handleScroll);
-            handleScroll();
-        }
-
-        return () => {
-            if (currentRef) {
-                currentRef.removeEventListener("scroll", handleScroll);
-            }
-        };
-    }, [onProgressChange]);
 
     // Trigger MathJax typeset when blackboard content changes
     useEffect(() => {
@@ -328,8 +297,7 @@ export default function MainContent({
 
     return (
         <div
-            ref={scrollRef}
-            className="flex-1 transparent p-8 overflow-y-auto h-[calc(100vh-112px)] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-800 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-gray-700"
+            className="flex-1 transparent p-8 min-h-full"
         >
             {/* MathJax Script */}
             <script
@@ -350,7 +318,7 @@ export default function MainContent({
             />
             <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
 
-            <div className="max-w-3xl mx-auto">
+            <div className="max-w-3xl mx-auto pb-40">
                 {/* Toggle Switch */}
                 <div className="flex items-center bg-[#1a1a1a] rounded-lg p-1 w-fit mb-8 border border-border-color">
                     <button

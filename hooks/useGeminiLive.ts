@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import {
     GoogleGenAI,
     Modality,
@@ -92,8 +92,6 @@ export function useGeminiLive({
         setIsLiveActive(false);
         onStatusChange?.("Disconnected");
     }, [onStatusChange]);
-
-    // ... (connect function remains unchanged) ...
 
     const startMic = async () => {
         try {
@@ -267,7 +265,6 @@ Here is the content of Module Opening / Sub-Module that you are suppose to expla
     DO NOT SPEAK UNTIL THE BOARD IS UPDATED.
 
 `;
-
             console.log("🛠️ Creating session with configuration...");
             const session = await client.current.live.connect({
                 model: USER_MODEL_STRING,
@@ -276,6 +273,7 @@ Here is the content of Module Opening / Sub-Module that you are suppose to expla
                     temperature: 0.5,
                     tools: [{ functionDeclarations: [updateBlackboardTool] }],
                     inputAudioTranscription: {},
+                    contextWindowCompression: { slidingWindow: {} },
                     thinkingConfig: {
                         thinkingBudget: 256,
                     },
